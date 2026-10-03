@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Video Downloader
+GenericName=Video Downloader
+Comment=Download videos from the web using yt-dlp
+Exec=/home/yassir14/Documents/youtube downloader/.venv/bin/python3 "/home/yassir14/Documents/youtube downloader/main.py"
+Path=/home/yassir14/Documents/youtube downloader
+Icon=io.github.videodownloader.VideoDownloader
+Terminal=false
+Type=Application
+Categories=AudioVideo;Network;
+Keywords=video;download;youtube;yt-dlp;media;
+StartupNotify=true
+StartupWMClass=io.github.videodownloader.VideoDownloader
