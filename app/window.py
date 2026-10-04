@@ -173,6 +173,7 @@ class MainWindow(Adw.ApplicationWindow):
             on_download_with_options=self._start_options_download,
             on_add_to_queue=self._add_options_to_queue,
             on_choose_folder=lambda: self._on_folder_clicked(None),
+            on_download_clip=self._start_clip_download,
         )
         self._main_box.append(self._options_view)
 
@@ -538,6 +539,38 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._queue.add_task(task)
         self._show_toast("Added to download queue")
+        self._update_empty_state_visibility()
+
+    def _start_clip_download(self, start_str: str, end_str: str):
+        """Start downloading the selected video clip."""
+        if not self._metadata:
+            self._show_toast("No video analyzed yet.")
+            return
+
+        quality = self._options_view.get_quality()
+        mode = self._options_view.get_mode()
+        out_format = self._options_view.get_format()
+        sub_lang, embed_subs = self._options_view.get_subtitles()
+        dest = self._options_view.get_destination()
+
+        task = DownloadTask(
+            id=str(uuid.uuid4())[:8],
+            url=self._metadata.webpage_url,
+            title=f"{self._metadata.title} (Clip {start_str}-{end_str})",
+            uploader=self._metadata.uploader,
+            thumbnail_url=self._metadata.thumbnail_url,
+            quality=quality,
+            output_format=out_format,
+            mode=mode,
+            destination=dest,
+            clip_start=start_str,
+            clip_end=end_str,
+            subtitles_lang=sub_lang,
+            embed_subtitles=embed_subs,
+        )
+
+        self._queue.add_task(task)
+        self._show_toast(f"Clip ({start_str} - {end_str}) added to queue")
         self._update_empty_state_visibility()
 
     # ─── Folder Selection ────────────────────────────────────────────────

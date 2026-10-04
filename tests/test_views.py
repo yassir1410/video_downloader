@@ -109,19 +109,46 @@ class TestViews(unittest.TestCase):
         opts.set_destination("/home/user/Videos")
         self.assertEqual(opts.get_destination(), "/home/user/Videos")
 
-        # Test clipping
-        opts._clip_start_row.set_text("00:01:00")
-        opts._clip_end_row.set_text("00:02:30")
+        # Test clipping via visual selector
+        opts._clip_selector._timeline.set_range(60.0, 120.0)
+        # Note metadata duration was 120 so max is 120
+        opts._clip_selector._timeline.set_range(60.0, 110.0)
         start, end = opts.get_clip_range()
         self.assertEqual(start, "00:01:00")
-        self.assertEqual(end, "00:02:30")
+        self.assertEqual(end, "00:01:50")
 
-        # Test invalid clipping
-        opts._clip_start_row.set_text("invalid")
-        opts._clip_end_row.set_text("")
+        # Full range returns None, None
+        opts._clip_selector._timeline.set_range(0.0, 120.0)
         start, end = opts.get_clip_range()
         self.assertIsNone(start)
         self.assertIsNone(end)
+
+    def test_clip_selector_view(self):
+        """Test ClipSelectorView duration, range sync, and download clip callback."""
+        from app.views.clip_selector import ClipSelectorView
+
+        clip_dl_args = None
+        def on_clip_dl(s, e):
+            nonlocal clip_dl_args
+            clip_dl_args = (s, e)
+
+        selector = ClipSelectorView(on_download_clip=on_clip_dl)
+        metadata = VideoMetadata(title="Trim Test", duration=300)
+        selector.set_metadata(metadata)
+
+        self.assertEqual(selector._lbl_start_bound.get_label(), "00:00")
+        self.assertEqual(selector._lbl_end_bound.get_label(), "5:00")
+
+        # Set range to 10s -> 70s
+        selector._timeline.set_range(10.0, 70.0)
+        selector._update_readouts(10.0, 70.0)
+        self.assertIn("1:00", selector._duration_badge.get_label())
+        self.assertEqual(selector._entry_start.get_text(), "00:00:10")
+        self.assertEqual(selector._entry_end.get_text(), "00:01:10")
+
+        # Test download clip button
+        selector._on_download_clip_clicked(None)
+        self.assertEqual(clip_dl_args, ("00:00:10", "00:01:10"))
 
     def test_queue_view_and_task_row(self):
         """Test QueueView row updates for various task statuses."""

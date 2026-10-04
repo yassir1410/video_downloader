@@ -13,6 +13,7 @@ from app.formats import FormatService
 from app.models import DownloadMode, SmartRecommendation, VideoMetadata
 from app.subtitles import SubtitleService
 from app.utils import parse_timestamp
+from app.views.clip_selector import ClipSelectorView
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class OptionsExpanderView(Gtk.Box):
         on_download_with_options: Optional[Callable[[], None]] = None,
         on_add_to_queue: Optional[Callable[[], None]] = None,
         on_choose_folder: Optional[Callable[[], None]] = None,
+        on_download_clip: Optional[Callable[[str, str], None]] = None,
     ):
         super().__init__(
             orientation=Gtk.Orientation.VERTICAL,
@@ -39,6 +41,7 @@ class OptionsExpanderView(Gtk.Box):
         self._on_download_with_options = on_download_with_options
         self._on_add_to_queue = on_add_to_queue
         self._on_choose_folder = on_choose_folder
+        self._on_download_clip = on_download_clip
 
         self._quality_codes: list[str] = ["Best"]
         self._subtitle_codes: list[str] = ["none"]
@@ -74,19 +77,15 @@ class OptionsExpanderView(Gtk.Box):
 
         # ── Video Clipping Expander ─────────────────────────────────────────
         self._clip_expander = Adw.ExpanderRow(
-            title="Clip Video (Optional)",
-            subtitle="Download a specific section of the video",
+            title="Clip Video (Interactive Timeline)",
+            subtitle="Visually trim and download a section of the video",
         )
-        self._clip_start_row = Adw.EntryRow(
-            title="Start Time",
+        self._clip_selector = ClipSelectorView(
+            on_download_clip=self._on_clip_downloaded,
         )
-        self._clip_start_row.set_text("")
-        self._clip_end_row = Adw.EntryRow(
-            title="End Time",
-        )
-        self._clip_end_row.set_text("")
-        self._clip_expander.add_row(self._clip_start_row)
-        self._clip_expander.add_row(self._clip_end_row)
+        clip_pref_row = Adw.PreferencesRow()
+        clip_pref_row.set_child(self._clip_selector)
+        self._clip_expander.add_row(clip_pref_row)
         group.add(self._clip_expander)
 
         # ── Subtitles Expander ──────────────────────────────────────────────
@@ -181,8 +180,7 @@ class OptionsExpanderView(Gtk.Box):
         self._update_format_options()
 
         # 3. Reset clipping
-        self._clip_start_row.set_text("")
-        self._clip_end_row.set_text("")
+        self._clip_selector.set_metadata(metadata)
         self._clip_expander.set_enable_expansion(True)
         self._clip_expander.set_expanded(False)
 
@@ -246,14 +244,13 @@ class OptionsExpanderView(Gtk.Box):
         item = self._format_row.get_selected_item()
         return item.get_string() if item else "MP4"
 
-    def get_clip_range(self) -> tuple[Optional[str], Optional[str]]:
-        """Validate and return (clip_start, clip_end) in string format."""
-        start_txt = self._clip_start_row.get_text().strip()
-        end_txt = self._clip_end_row.get_text().strip()
+    def _on_clip_downloaded(self, start_str: str, end_str: str) -> None:
+        if self._on_download_clip:
+            self._on_download_clip(start_str, end_str)
 
-        start = start_txt if parse_timestamp(start_txt) is not None else None
-        end = end_txt if parse_timestamp(end_txt) is not None else None
-        return start, end
+    def get_clip_range(self) -> tuple[Optional[str], Optional[str]]:
+        """Return (clip_start, clip_end) in string format."""
+        return self._clip_selector.get_clip_range()
 
     def get_subtitles(self) -> tuple[Optional[str], bool]:
         """Return (subtitles_lang, embed_subtitles)."""
