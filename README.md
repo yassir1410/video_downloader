@@ -17,6 +17,12 @@ A fast, native, minimalist video downloader for Fedora, powered by yt-dlp.
 - Dark/light theme support (follows system)
 - Supports any website that yt-dlp supports
 
+## Supported Platforms
+
+- **YouTube**: standard videos, `youtu.be` links, Shorts, and high-resolution split streams (1080p, 1440p, 4K).
+- **Facebook**: regular posts with videos, Facebook Watch links, Facebook Reels, and `fb.watch` short links.
+- **Additional websites**: Any public video source supported by `yt-dlp` (Vimeo, Dailymotion, etc.) works through the same universal pipeline.
+
 ## Requirements
 
 - Fedora Linux with GNOME desktop

@@ -23,6 +23,9 @@ class TestFormatDuration(unittest.TestCase):
     def test_negative(self):
         self.assertEqual(format_duration(-1), "0:00")
 
+    def test_none(self):
+        self.assertEqual(format_duration(None), "Unknown duration")
+
 
 class TestFormatFileSize(unittest.TestCase):
     def test_zero(self):
@@ -104,6 +107,61 @@ class TestIsValidUrl(unittest.TestCase):
 
     def test_whitespace_stripped(self):
         self.assertTrue(is_valid_url("  https://example.com  "))
+
+
+class TestTimestampUtils(unittest.TestCase):
+    def test_parse_timestamp_hhmmss(self):
+        from app.utils import parse_timestamp
+        self.assertEqual(parse_timestamp("01:23:45"), 5025)
+        self.assertEqual(parse_timestamp("00:02:15"), 135)
+
+    def test_parse_timestamp_mmss(self):
+        from app.utils import parse_timestamp
+        self.assertEqual(parse_timestamp("05:30"), 330)
+        self.assertEqual(parse_timestamp("00:45"), 45)
+
+    def test_parse_timestamp_seconds_only(self):
+        from app.utils import parse_timestamp
+        self.assertEqual(parse_timestamp("90"), 90)
+
+    def test_parse_timestamp_invalid(self):
+        from app.utils import parse_timestamp
+        self.assertIsNone(parse_timestamp(""))
+        self.assertIsNone(parse_timestamp(None))
+        self.assertIsNone(parse_timestamp("abc"))
+        self.assertIsNone(parse_timestamp("01:65:00"))  # Invalid minutes
+
+    def test_format_timestamp(self):
+        from app.utils import format_timestamp
+        self.assertEqual(format_timestamp(0), "00:00:00")
+        self.assertEqual(format_timestamp(135), "00:02:15")
+        self.assertEqual(format_timestamp(5025), "01:23:45")
+
+
+class TestExtractUrls(unittest.TestCase):
+    def test_extract_single_url(self):
+        from app.utils import extract_urls
+        text = "Check this video https://www.youtube.com/watch?v=123"
+        self.assertEqual(extract_urls(text), ["https://www.youtube.com/watch?v=123"])
+
+    def test_extract_multiple_urls(self):
+        from app.utils import extract_urls
+        text = """
+        https://www.youtube.com/watch?v=123
+        https://www.facebook.com/reel/456
+        and another: https://youtu.be/789!
+        """
+        urls = extract_urls(text)
+        self.assertEqual(len(urls), 3)
+        self.assertIn("https://www.youtube.com/watch?v=123", urls)
+        self.assertIn("https://www.facebook.com/reel/456", urls)
+        self.assertIn("https://youtu.be/789", urls)
+
+    def test_extract_empty(self):
+        from app.utils import extract_urls
+        self.assertEqual(extract_urls(""), [])
+        self.assertEqual(extract_urls(None), [])
+        self.assertEqual(extract_urls("no links here"), [])
 
 
 if __name__ == "__main__":

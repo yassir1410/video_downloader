@@ -75,6 +75,8 @@ class VideoDownloaderApplication(Adw.Application):
         self.set_accels_for_action("app.quit", ["<Control>q"])
         self.set_accels_for_action("win.focus-url", ["<Control>l"])
         self.set_accels_for_action("win.choose-folder", ["<Control>o"])
+        self.set_accels_for_action("win.smart-download", ["<Control><Shift>d"])
+        self.set_accels_for_action("win.show-history", ["<Control>h"])
 
     def _on_quit(self, action, param):
         """Handle quit action."""

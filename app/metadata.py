@@ -1,11 +1,10 @@
-"""Metadata extraction service using yt-dlp."""
-
 import logging
 from typing import Optional
 
 import yt_dlp
 
-from app.models import VideoMetadata
+from app.models import VideoMetadata, VideoProvider
+from app.utils import detect_provider
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,8 @@ class MetadataService:
         Raises:
             MetadataError: If extraction fails with a user-friendly message.
         """
+        provider = detect_provider(url)
+
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
@@ -52,13 +53,44 @@ class MetadataService:
                     "extract_info returned None",
                 )
 
+            # Determine title with fallbacks
+            title = info.get("title")
+            if not title or title.strip() == "":
+                description = info.get("description") or ""
+                first_line = description.strip().split("\n")[0][:80].strip()
+                title = first_line or (
+                    f"{provider.value} Video" if provider != VideoProvider.OTHER else "Untitled Video"
+                )
+
+            # Determine uploader with provider fallback
+            uploader = (
+                info.get("uploader")
+                or info.get("channel")
+                or info.get("uploader_id")
+                or info.get("creator")
+                or (provider.value if provider != VideoProvider.OTHER else "Unknown")
+            )
+
+            # Duration safely parsed
+            duration = None
+            if info.get("duration") is not None:
+                try:
+                    duration = int(info["duration"])
+                except (ValueError, TypeError):
+                    duration = None
+
+            thumbnail_url = info.get("thumbnail") or ""
+
             return VideoMetadata(
-                title=info.get("title", "Unknown Title"),
-                uploader=info.get("uploader") or info.get("channel") or info.get("uploader_id") or "Unknown",
-                duration=int(info.get("duration", 0)),
-                thumbnail_url=info.get("thumbnail", ""),
+                title=title,
+                uploader=uploader,
+                duration=duration,
+                thumbnail_url=thumbnail_url,
                 webpage_url=info.get("webpage_url", url),
                 raw_formats=info.get("formats", []),
+                provider=provider,
+                subtitles=info.get("subtitles") or {},
+                automatic_captions=info.get("automatic_captions") or {},
             )
 
         except MetadataError:
@@ -66,16 +98,15 @@ class MetadataService:
 
         except yt_dlp.utils.DownloadError as e:
             error_msg = str(e).lower()
-            user_message = self._classify_error(error_msg)
+            user_message = self._classify_error(error_msg, provider)
             logger.error("yt-dlp DownloadError for %s: %s", url, e)
             raise MetadataError(user_message, str(e)) from e
 
         except yt_dlp.utils.ExtractorError as e:
+            error_msg = str(e).lower()
+            user_message = self._classify_error(error_msg, provider)
             logger.error("yt-dlp ExtractorError for %s: %s", url, e)
-            raise MetadataError(
-                "Unable to extract information from this URL.",
-                str(e),
-            ) from e
+            raise MetadataError(user_message, str(e)) from e
 
         except Exception as e:
             logger.error("Unexpected error extracting metadata for %s: %s", url, e)
@@ -84,8 +115,18 @@ class MetadataService:
                 str(e),
             ) from e
 
-    def _classify_error(self, error_msg: str) -> str:
+    def _classify_error(
+        self, error_msg: str, provider: VideoProvider = VideoProvider.OTHER
+    ) -> str:
         """Convert yt-dlp error messages into user-friendly messages."""
+        # Facebook-specific errors
+        if provider == VideoProvider.FACEBOOK or "facebook" in error_msg:
+            if any(k in error_msg for k in ("private", "login", "sign in", "restricted", "cannot parse", "not available")):
+                return (
+                    "Unable to access this Facebook video.\n"
+                    "The video may be private, restricted, deleted, or require you to sign in."
+                )
+
         if "private" in error_msg:
             return "This video is private and cannot be accessed."
         if "geo" in error_msg or "country" in error_msg:
@@ -104,10 +145,7 @@ class MetadataService:
         if "unavailable" in error_msg or "not available" in error_msg:
             return "This video is unavailable."
         if "unsupported" in error_msg or "no suitable" in error_msg:
-            return (
-                "This URL is not supported.\n"
-                "Please check the URL and try again."
-            )
+            return "This website or URL is not currently supported."
         if "network" in error_msg or "connection" in error_msg or "timed out" in error_msg:
             return (
                 "Network error.\n"

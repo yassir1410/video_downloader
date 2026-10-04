@@ -48,6 +48,10 @@ class DownloaderService:
         mode: DownloadMode,
         destination: str,
         progress_callback: Callable[[DownloadProgress], None],
+        clip_start: Optional[str] = None,
+        clip_end: Optional[str] = None,
+        subtitles_lang: Optional[str] = None,
+        embed_subtitles: bool = False,
     ) -> str:
         """Download a video or audio from URL.
 
@@ -58,6 +62,10 @@ class DownloaderService:
             mode: Download mode (VIDEO_AUDIO or AUDIO_ONLY).
             destination: Destination directory path.
             progress_callback: Called with DownloadProgress updates.
+            clip_start: Optional start timestamp (e.g. "00:01:00").
+            clip_end: Optional end timestamp (e.g. "00:02:30").
+            subtitles_lang: Optional language code for subtitles.
+            embed_subtitles: Whether to embed subtitles into output file.
 
         Returns:
             Path to the downloaded file.
@@ -94,11 +102,12 @@ class DownloaderService:
         postprocessors = self._format_service.get_postprocessors(mode, output_format)
         merge_format = self._format_service.get_merge_output_format(mode, output_format)
 
-        output_template = os.path.join(destination, "%(title)s.%(ext)s")
+        output_template = os.path.join(destination, "%(title).80s.%(ext)s")
 
         ydl_opts = {
             "format": format_selector,
             "outtmpl": output_template,
+            "trim_file_name": 120,
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
@@ -108,11 +117,37 @@ class DownloaderService:
             "noprogress": True,
         }
 
+        # Audio metadata & artwork embedding
+        if mode == DownloadMode.AUDIO_ONLY:
+            ydl_opts["writethumbnail"] = True
+            postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
+            postprocessors.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+
+        # Subtitles
+        if subtitles_lang and subtitles_lang != "none":
+            from app.subtitles import SubtitleService
+            sub_opts = SubtitleService().get_subtitle_options(subtitles_lang, embed=embed_subtitles)
+            for k, v in sub_opts.items():
+                if k == "postprocessors":
+                    postprocessors.extend(v)
+                else:
+                    ydl_opts[k] = v
+
         if postprocessors:
             ydl_opts["postprocessors"] = postprocessors
 
         if merge_format:
             ydl_opts["merge_output_format"] = merge_format
+
+        # Section clipping
+        if clip_start or clip_end:
+            from app.utils import parse_timestamp
+            s_sec = parse_timestamp(clip_start) if clip_start else 0
+            e_sec = parse_timestamp(clip_end) if clip_end else None
+            if s_sec is not None and e_sec is not None and e_sec > s_sec:
+                ydl_opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(s_sec, e_sec)])
+                ydl_opts["force_keyframes_at_cuts"] = True
+                logger.info("Configured clip range: %s to %s (%ds to %ds)", clip_start, clip_end, s_sec, e_sec)
 
         logger.info(
             "Starting download: url=%s quality=%s format=%s mode=%s dest=%s",
@@ -223,18 +258,31 @@ class DownloaderService:
     def _make_postprocessor_hook(
         self, callback: Callable[[DownloadProgress], None]
     ) -> Callable:
-        """Create a yt-dlp postprocessor hook."""
+        """Create a yt-dlp postprocessor hook with descriptive step messages."""
 
         def hook(data: dict) -> None:
             if self._cancel_event.is_set():
                 raise DownloadCancelled()
 
             status = data.get("status", "")
+            pp_name = str(data.get("postprocessor", ""))
+
+            if "Merger" in pp_name:
+                desc = "Merging video and audio streams…"
+            elif "ExtractAudio" in pp_name:
+                desc = "Converting audio…"
+            elif "EmbedSubtitle" in pp_name:
+                desc = "Embedding subtitles…"
+            elif "Metadata" in pp_name or "Thumbnail" in pp_name:
+                desc = "Embedding metadata and artwork…"
+            else:
+                desc = "Processing and finalizing…"
 
             if status == "started":
                 progress = DownloadProgress(
                     status="processing",
                     percentage=100.0,
+                    step_description=desc,
                 )
                 callback(progress)
 
@@ -242,6 +290,7 @@ class DownloaderService:
                 progress = DownloadProgress(
                     status="finished",
                     percentage=100.0,
+                    step_description="Finalizing output…",
                 )
                 callback(progress)
 
@@ -257,6 +306,11 @@ class DownloaderService:
             return (
                 "Permission denied.\n"
                 "Cannot write to the download folder."
+            )
+        if "file name too long" in error_msg or "errno 36" in error_msg:
+            return (
+                "File name too long for storage filesystem.\n"
+                "The video title has been shortened to fit disk limits."
             )
         if "disk" in error_msg or "space" in error_msg or "no space" in error_msg:
             return (
